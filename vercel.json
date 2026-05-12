@@ -1,0 +1,10 @@
+{
+  "functions": {
+    "api/ocr.js": {
+      "maxDuration": 60
+    },
+    "api/advisor.js": {
+      "maxDuration": 30
+    }
+  }
+}
