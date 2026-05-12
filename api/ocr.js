@@ -103,7 +103,7 @@ Be thorough — capture every voucher card in the screenshot, including ones par
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: 'gpt-4o',
+        model: 'gpt-4o-mini',
         max_tokens: 2000,
         messages: [
           {
