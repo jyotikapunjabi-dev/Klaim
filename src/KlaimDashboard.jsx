@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef } from 'react';
 import { Sparkles, Upload, ArrowUpRight, Search, Loader2, Zap, X, Check, AlertTriangle, Clock, Mail, Copy, Bell, ExternalLink, Chrome, ShoppingBag, TrendingUp, Plug } from 'lucide-react';
 
 // Map known brands to their retail URLs. Fallback to a Google search for the brand.
@@ -131,6 +131,8 @@ export default function KlaimDashboard() {
   const [selectedVoucher, setSelectedVoucher] = useState(null);
   const [copiedCode, setCopiedCode] = useState(false);
   const [reminderOn, setReminderOn] = useState(false);
+  const [dragActive, setDragActive] = useState(false);
+  const fileInputRef = useRef(null);
 
   const copyCode = (code) => {
     if (!code) return;
@@ -1021,19 +1023,46 @@ OUTPUT FORMAT:
 
             {!ocrLoading && !ocrError && !ocrPreview && (
               <>
-                <label className="block">
-                  <input
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    onChange={(e) => handleScreenshotUpload(e.target.files?.[0])}
-                  />
-                  <div className="rounded-xl border-2 border-dashed p-10 text-center mb-4 cursor-pointer hover:border-current transition" style={{ borderColor: '#C8C8C8' }}>
-                    <Upload size={28} className="mx-auto mb-3" style={{ color: '#6B6862' }} />
-                    <div className="text-sm mb-1 font-medium">Drop a screenshot from GPay, Swiggy, CRED, PhonePe</div>
-                    <div className="text-xs" style={{ color: '#6B6862' }}>Click to choose · or drag & drop</div>
-                  </div>
-                </label>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  style={{ position: 'absolute', width: '1px', height: '1px', padding: 0, margin: '-1px', overflow: 'hidden', clip: 'rect(0,0,0,0)', whiteSpace: 'nowrap', border: 0 }}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) handleScreenshotUpload(file);
+                    e.target.value = '';
+                  }}
+                />
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => fileInputRef.current?.click()}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInputRef.current?.click(); } }}
+                  onDragEnter={(e) => { e.preventDefault(); e.stopPropagation(); setDragActive(true); }}
+                  onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDragActive(true); }}
+                  onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setDragActive(false); }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setDragActive(false);
+                    const file = e.dataTransfer.files?.[0];
+                    if (file && file.type.startsWith('image/')) {
+                      handleScreenshotUpload(file);
+                    } else if (file) {
+                      setOcrError('That file isn\'t an image. Try a PNG or JPG.');
+                    }
+                  }}
+                  className="rounded-xl border-2 border-dashed p-10 text-center mb-4 cursor-pointer transition select-none"
+                  style={{
+                    borderColor: dragActive ? '#3B5C8A' : '#C8C8C8',
+                    background: dragActive ? 'rgba(59,92,138,0.05)' : 'transparent',
+                  }}
+                >
+                  <Upload size={28} className="mx-auto mb-3" style={{ color: dragActive ? '#3B5C8A' : '#6B6862' }} />
+                  <div className="text-sm mb-1 font-medium">Drop a screenshot from GPay, Swiggy, CRED, PhonePe</div>
+                  <div className="text-xs" style={{ color: '#6B6862' }}>Click to choose · or drag &amp; drop</div>
+                </div>
                 <div className="text-xs space-y-2" style={{ color: '#6B6862' }}>
                   <div className="flex items-center gap-2"><Check size={12} style={{ color: '#15803D' }} /> Brand, value, code — auto-detected via AI Vision</div>
                   <div className="flex items-center gap-2"><Check size={12} style={{ color: '#15803D' }} /> Review every voucher before adding — you stay in control</div>
