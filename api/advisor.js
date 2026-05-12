@@ -2,6 +2,8 @@
 // If OPENAI_API_KEY is set: proxies to OpenAI gpt-4o.
 // If not set: returns smart canned responses (demo-safe, zero cost).
 
+export const maxDuration = 60;
+
 const MOCK_RESPONSES = [
   {
     match: /goa|trip|travel|vacation|holiday|flight|hotel|villa|stay/i,

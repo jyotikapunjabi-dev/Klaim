@@ -1,5 +1,63 @@
 import { useState, useMemo } from 'react';
-import { Sparkles, Upload, ArrowUpRight, Search, Loader2, Zap, X, Check, AlertTriangle, Clock, Mail } from 'lucide-react';
+import { Sparkles, Upload, ArrowUpRight, Search, Loader2, Zap, X, Check, AlertTriangle, Clock, Mail, Copy, Bell, ExternalLink, Chrome, ShoppingBag, TrendingUp, Plug } from 'lucide-react';
+
+// Map known brands to their retail URLs. Fallback to a Google search for the brand.
+const RETAILER_URLS = {
+  'Zepto': 'https://www.zeptonow.com/',
+  'Meesho': 'https://www.meesho.com/',
+  'Nykaa Fashion': 'https://www.nykaafashion.com/',
+  'District': 'https://www.district.in/',
+  'McDelivery': 'https://www.mcdelivery.co.in/',
+  'mCaffeine': 'https://www.mcaffeine.com/',
+  'Cleartrip': 'https://www.cleartrip.com/',
+  'The Derma Co': 'https://thedermaco.com/',
+  'Clay Co': 'https://theclayco.in/',
+  'Lenskart': 'https://www.lenskart.com/',
+  "Re'equil": 'https://www.reequil.com/',
+  'Foxtale': 'https://www.foxtale.in/',
+  "Domino's": 'https://www.dominos.co.in/',
+  'GIVA': 'https://www.giva.co/',
+  'Tira': 'https://www.tirabeauty.com/',
+  'Minimalist': 'https://beminimalist.co/',
+  'BigBasket': 'https://www.bigbasket.com/',
+  'Hyphen': 'https://hyphenbeauty.com/',
+  'RENEE Cosmetics': 'https://reneecosmetics.in/',
+  'Go': 'https://www.cleartrip.com/flights',
+  'Puma': 'https://in.puma.com/',
+  'Toothsi': 'https://toothsi.in/',
+  'StayVista': 'https://www.stayvista.com/',
+  'IndiGo Sightseeing': 'https://www.goindigo.in/add-on-services/sightseeing.html',
+  'IndiGo Hotels': 'https://www.goindigo.in/hotels.html',
+  'EaseMyTrip': 'https://www.easemytrip.com/',
+  'AirIndia Maharaja Club': 'https://www.airindia.com/in/en/airindia-loyalty-program.html',
+  'Qatar Airways Privilege Club': 'https://www.qatarairways.com/en/Privilege-Club.html',
+  'Club ITC': 'https://www.itchotels.com/in/en/clubitc',
+  'The Hindu': 'https://www.thehindu.com/subscription/',
+};
+const getRetailerUrl = (brand) => RETAILER_URLS[brand] || `https://www.google.com/search?q=${encodeURIComponent(brand + ' India shop')}`;
+
+// Connected reward sources — shows the data-aggregation thesis.
+const CONNECTED_SOURCES = [
+  { name: 'GPay Rewards', status: 'active', count: 21, note: 'Last synced 2 hours ago' },
+  { name: 'Swiggy Rewards', status: 'active', count: 2, note: 'Last synced 4 hours ago' },
+  { name: 'Gmail (D2C brand emails)', status: 'active', count: 8, note: 'Last synced 1 hour ago' },
+  { name: 'CRED Rewards', status: 'coming', note: 'Closed-loop coins + RentPay rewards' },
+  { name: 'PhonePe Offers', status: 'coming', note: 'Cashbacks + scratch cards' },
+  { name: 'Paytm Wallet', status: 'coming', note: 'Wallet balance + Paytm First offers' },
+  { name: 'Marriott Bonvoy', status: 'coming', note: 'Hotel loyalty points + free nights' },
+  { name: 'Air India Maharaja Club', status: 'coming', note: 'Frequent flyer miles + tier benefits' },
+  { name: 'Credit Card Optimizer', status: 'coming', note: 'Best card for any purchase, in real time' },
+];
+
+// Static activity feed — communicates that Klaim is doing things for you.
+const RECENT_ACTIVITY = [
+  { icon: 'save', label: 'Saved ₹450 via', highlight: 'SUGAR250', tail: 'at Sugar Cosmetics', when: '2d ago', tone: '#15803D' },
+  { icon: 'warn', label: 'Tira voucher expiring in', highlight: '3 days', tail: '· ₹600 at risk', when: 'now', tone: '#B45309' },
+  { icon: 'new', label: 'New voucher detected from Gmail:', highlight: 'boAt 20% off', tail: '', when: '4h ago', tone: '#3B5C8A' },
+  { icon: 'save', label: 'Saved ₹1,200 via', highlight: 'Cleartrip 25%', tail: 'on Goa flight', when: '1w ago', tone: '#15803D' },
+  { icon: 'new', label: 'GPay sync added', highlight: '3 new vouchers', tail: 'across Beauty', when: '2h ago', tone: '#3B5C8A' },
+  { icon: 'warn', label: 'Puma voucher expires', highlight: 'tomorrow', tail: '· code F4CBLNCGE6', when: 'now', tone: '#991B1B' },
+];
 
 // Real voucher data extracted from Samvit's GPay Rewards + Swiggy Scratch & Win screenshots.
 // Expiry dates: explicit where GPay/Swiggy showed badges ("6d left", "13d left", "1 day");
@@ -69,6 +127,17 @@ export default function KlaimDashboard() {
   const [gmailSyncing, setGmailSyncing] = useState(false);
   const [gmailPreview, setGmailPreview] = useState(null);
   const [gmailLastSync, setGmailLastSync] = useState('2 hours ago');
+  const [activeTab, setActiveTab] = useState('dashboard');
+  const [selectedVoucher, setSelectedVoucher] = useState(null);
+  const [copiedCode, setCopiedCode] = useState(false);
+  const [reminderOn, setReminderOn] = useState(false);
+
+  const copyCode = (code) => {
+    if (!code) return;
+    if (navigator.clipboard) navigator.clipboard.writeText(code);
+    setCopiedCode(true);
+    setTimeout(() => setCopiedCode(false), 1600);
+  };
 
   const filtered = useMemo(() => {
     let list = activeCategory === 'All' ? vouchers : vouchers.filter(v => v.category === activeCategory);
@@ -281,29 +350,25 @@ export default function KlaimDashboard() {
 
       const systemPrompt = `You are a sharp shopping advisor for an Indian consumer using Klaim, an app that aggregates voucher portfolios from GPay, Swiggy, and similar.
 
-Their active rewards portfolio (each line includes the retailer's specialty):
+Their active rewards portfolio (each line includes the retailer's specialty, days until expiry, source, and any code):
 
 ${portfolio}
 
-WHEN INPUT CONTAINS A URL OR SPECIFIC PRODUCT NAME — use the web_search tool to:
-1. Identify the product CATEGORY/TYPE, not just the specific brand (e.g. "XERGY battery LED candle" → "home decor / battery candles"; "Mamaearth Onion Shampoo" → "anti-hairfall shampoo").
-2. Treat the user as BRAND-FLEXIBLE unless they explicitly say otherwise. Search portfolio retailers for ALTERNATIVE products in the same category that may be cheaper or where vouchers apply (e.g. Meesho carries home decor; Tira carries premium beauty; D2C brand sites for skincare).
-3. If you find a real alternative on a portfolio retailer, recommend it with concrete savings math (source price vs alternative price minus voucher discount).
-4. INCLUDE A REAL URL from your web_search results when recommending an alternative — either a specific product page or, if unavailable, a category search page on that retailer (e.g. https://www.meesho.com/search?q=led+candle). NEVER fabricate or guess URLs. If web_search didn't surface a usable link, just name the retailer without a URL.
-5. Only fall back to "buy direct on Amazon/source" if NO portfolio retailer carries the category at all.
-
 REASONING APPROACH:
-- Match shopping intent to retailer SPECIALTY (cameras → electronics, kurta → fashion, face wash → beauty/D2C skincare, candles → home decor like Meesho).
-- Among matches, prioritize: closest expiry, highest direct savings, no caveats.
-- If nothing in portfolio fits, say what kind of voucher would help.
+1. Identify the product CATEGORY from the user's query (e.g. "kurta" → ethnic fashion; "face serum" → beauty/D2C skincare; "weekend in Goa" → travel — flights, stays, activities).
+2. Match category to retailer SPECIALTY in the portfolio (Meesho = mass fashion + home; Tira = premium beauty; Cleartrip/IndiGo/StayVista = travel; Hyphen/Derma Co = D2C skincare; etc.).
+3. Among matches, prioritize: (a) closest expiry, (b) highest concrete ₹ savings, (c) no caveats. Mention 2-3 relevant vouchers with codes and savings math when possible.
+4. Be brand-flexible — treat the user as open to alternatives unless they specify a brand. If they ask for Nykaa, suggest Tira if it has the better voucher.
+5. If NOTHING in the portfolio fits the category, say so honestly and suggest what type of voucher would help.
 
-OUTPUT FORMAT (STRICT):
-- 2-3 SHORT sentences. Maximum 60 words. Be punchy.
-- Use **bold** for: brand names, voucher codes, savings amounts (₹), urgency words like "expires today".
-- Use *italic* for: caveats only (e.g. *new users only*, *expires soon*).
-- NO bullet points, NO headers, NO line breaks within a paragraph.
-- Write like a savvy friend texting fast, not a customer service bot.
-- Mention specific vouchers and codes when relevant.`;
+OUTPUT FORMAT:
+- 3-5 sentences. Target 100-150 words. Concrete, specific, never generic.
+- Use **bold** for: brand names, voucher codes (e.g. **SUGAR250**), savings amounts (e.g. **₹500 off**), urgency phrases (e.g. **expires in 2 days**).
+- Use *italic* for: caveats only (e.g. *new users only*, *prepaid only*).
+- NO bullet points, NO headers, NO line breaks. Flowing prose.
+- Write like a savvy friend texting fast — confident, direct, useful. Not a customer service bot.
+- Always mention specific voucher codes and concrete savings when relevant. End with a soft urgency cue if a voucher expires soon.
+- DO NOT invent URLs, product pages, or facts you weren't given. Only reference vouchers actually in the portfolio above.`;
 
       const res = await fetch('/api/advisor', {
         method: 'POST',
@@ -359,28 +424,68 @@ OUTPUT FORMAT (STRICT):
             <span className="serif text-2xl tracking-tight">Klaim</span>
             <span className="text-xs ml-2 px-2 py-0.5 rounded-full" style={{ background: '#E0E0E0', color: '#6B6862' }}>beta</span>
           </div>
-          <div className="hidden md:flex items-center gap-6 text-sm" style={{ color: '#6B6862' }}>
-            <span>Dashboard</span>
-            <span>Discover</span>
-            <span>Settings</span>
-            <div className="w-8 h-8 rounded-full flex items-center justify-center text-white font-medium" style={{ background: '#3B5C8A' }}>S</div>
+          <div className="hidden md:flex items-center gap-6 text-sm">
+            {['dashboard', 'discover', 'settings'].map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                className="capitalize transition relative pb-1"
+                style={{
+                  color: activeTab === tab ? '#0F2547' : '#6B6862',
+                  fontWeight: activeTab === tab ? 600 : 400,
+                  borderBottom: activeTab === tab ? '2px solid #0F2547' : '2px solid transparent',
+                }}
+              >
+                {tab}
+              </button>
+            ))}
+            <div className="w-8 h-8 rounded-full flex items-center justify-center text-white font-medium" style={{ background: '#3B5C8A' }}>J</div>
           </div>
         </div>
       </header>
 
       <main className="max-w-6xl mx-auto px-6 py-10">
         {/* Hero */}
+        {activeTab === 'dashboard' && (
         <section className="fade-in mb-10" style={{ animationDelay: '0.05s' }}>
           <div className="text-xs tracking-widest uppercase mb-3" style={{ color: '#6B6862' }}>Your portfolio · {new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long' })}</div>
-          <h1 className="serif text-3xl md:text-4xl leading-tight mb-2">
-            You have <em className="serif-italic" style={{ color: '#3B5C8A' }}>₹{stats.totalValue.toLocaleString('en-IN')}+</em> sitting in vouchers.
+          <h1 className="serif text-3xl md:text-4xl leading-tight mb-3">
+            <em className="serif-italic" style={{ color: '#3B5C8A' }}>₹{stats.totalValue.toLocaleString('en-IN')}+</em> in vouchers. Don't lose another rupee.
           </h1>
           <p className="text-base" style={{ color: '#6B6862' }}>
-            {stats.expiringSoon} expire in the next week. ₹{stats.missedValue.toLocaleString('en-IN')} already lost to expiry last month.
+            <strong style={{ color: '#92400E' }}>₹{stats.missedValue.toLocaleString('en-IN')} already lost</strong> to expiry last month — vouchers you earned, never used. <strong style={{ color: '#B45309' }}>{stats.expiringSoon} more expire this week.</strong>
           </p>
         </section>
+        )}
+
+        {/* Activity feed strip — only on Dashboard */}
+        {activeTab === 'dashboard' && (
+        <section className="fade-in mb-10" style={{ animationDelay: '0.08s' }}>
+          <div className="text-xs tracking-widest uppercase mb-3 flex items-center gap-2" style={{ color: '#6B6862' }}>
+            <TrendingUp size={11} /> Recent activity
+          </div>
+          <div className="flex gap-3 overflow-x-auto pb-2" style={{ scrollbarWidth: 'thin' }}>
+            {RECENT_ACTIVITY.map((a, i) => (
+              <div
+                key={i}
+                className="flex-shrink-0 px-4 py-3 rounded-xl border flex items-center gap-2 whitespace-nowrap"
+                style={{ background: 'white', borderColor: '#E0E0E0', minWidth: 'fit-content' }}
+              >
+                <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: a.tone }} />
+                <span className="text-xs" style={{ color: '#1A1815' }}>
+                  {a.label}{' '}
+                  <strong style={{ color: a.tone }}>{a.highlight}</strong>
+                  {a.tail && <span style={{ color: '#6B6862' }}> {a.tail}</span>}
+                </span>
+                <span className="text-[10px] uppercase tracking-wider pl-1" style={{ color: '#6B6862' }}>{a.when}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+        )}
 
         {/* AI Advisor */}
+        {activeTab === 'dashboard' && (
         <section className="fade-in mb-10" style={{ animationDelay: '0.15s' }}>
           <div className="rounded-2xl p-6 md:p-8 relative overflow-hidden" style={{ background: '#3B5C8A', color: '#FAFAFA' }}>
             <div className="absolute inset-0 grain opacity-30 pointer-events-none" />
@@ -462,8 +567,10 @@ OUTPUT FORMAT (STRICT):
             </div>
           </div>
         </section>
+        )}
 
         {/* Stats strip */}
+        {activeTab === 'dashboard' && (
         <section className="fade-in grid grid-cols-3 gap-3 md:gap-4 mb-10" style={{ animationDelay: '0.2s' }}>
           {[
             { label: 'Total value', val: `₹${stats.totalValue.toLocaleString('en-IN')}`, sub: `across ${stats.total} active vouchers` },
@@ -477,8 +584,52 @@ OUTPUT FORMAT (STRICT):
             </div>
           ))}
         </section>
+        )}
+
+        {/* Connected Sources mini-card + Extension banner */}
+        {activeTab === 'dashboard' && (
+        <section className="fade-in mb-10 grid grid-cols-1 md:grid-cols-2 gap-4" style={{ animationDelay: '0.22s' }}>
+          {/* Connected Sources mini */}
+          <div className="rounded-2xl border p-5" style={{ background: 'white', borderColor: '#E0E0E0' }}>
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <Plug size={14} style={{ color: '#3B5C8A' }} />
+                <span className="text-xs uppercase tracking-widest" style={{ color: '#6B6862' }}>Connected sources</span>
+              </div>
+              <button onClick={() => setActiveTab('settings')} className="text-xs font-medium" style={{ color: '#3B5C8A' }}>Manage →</button>
+            </div>
+            <div className="flex flex-wrap gap-2 mb-1">
+              {CONNECTED_SOURCES.filter(s => s.status === 'active').map(s => (
+                <div key={s.name} className="text-xs px-2.5 py-1 rounded-full flex items-center gap-1.5" style={{ background: '#ECFCCB', color: '#3F6212' }}>
+                  <span className="w-1.5 h-1.5 rounded-full" style={{ background: '#15803D' }} />
+                  {s.name} <span style={{ color: '#65A30D' }}>· {s.count}</span>
+                </div>
+              ))}
+            </div>
+            <div className="text-[11px] mt-2" style={{ color: '#6B6862' }}>
+              +{CONNECTED_SOURCES.filter(s => s.status === 'coming').length} more sources coming — CRED, PhonePe, Marriott Bonvoy, Air India, credit cards.
+            </div>
+          </div>
+
+          {/* Chrome Extension banner */}
+          <div className="rounded-2xl p-5 relative overflow-hidden" style={{ background: '#0F2547', color: '#FAFAFA' }}>
+            <div className="flex items-center gap-2 mb-2">
+              <Chrome size={14} />
+              <span className="text-xs uppercase tracking-widest" style={{ opacity: 0.8 }}>Klaim for Chrome</span>
+            </div>
+            <div className="serif text-lg mb-2 leading-snug">Surface your vouchers at checkout, automatically.</div>
+            <div className="text-xs mb-3" style={{ opacity: 0.85 }}>
+              Shopping on Nykaa, Myntra, Tira, BigBasket, MakeMyTrip and 15 more sites? Klaim slides in with the right voucher — and pivots you to a better-stocked retailer if yours expired.
+            </div>
+            <button onClick={() => setActiveTab('settings')} className="text-xs font-medium px-3 py-1.5 rounded-md inline-flex items-center gap-1.5" style={{ background: '#FAFAFA', color: '#0F2547' }}>
+              How to install <ArrowUpRight size={11} />
+            </button>
+          </div>
+        </section>
+        )}
 
         {/* Filters + actions */}
+        {activeTab === 'dashboard' && (
         <section className="fade-in mb-6 flex flex-col md:flex-row md:items-center justify-between gap-3" style={{ animationDelay: '0.25s' }}>
           <div className="flex items-center gap-2 flex-wrap">
             {CATEGORIES.map(c => (
@@ -526,8 +677,10 @@ OUTPUT FORMAT (STRICT):
             </button>
           </div>
         </section>
+        )}
 
         {/* Voucher grid — sticker book treatment */}
+        {activeTab === 'dashboard' && (
         <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-8 py-2">
           {filtered.map((v, i) => {
             const u = urgencyTone(v.daysLeft, v.daysExplicit);
@@ -535,6 +688,7 @@ OUTPUT FORMAT (STRICT):
             return (
               <div
                 key={v.id}
+                onClick={() => setSelectedVoucher(v)}
                 className={`voucher-card fade-in border p-5 group cursor-pointer relative overflow-hidden rounded-2xl ${tiltClass}`}
                 style={{ background: 'white', borderColor: '#1A1815', borderWidth: '0.5px', animationDelay: `${0.3 + i * 0.025}s` }}
               >
@@ -581,14 +735,16 @@ OUTPUT FORMAT (STRICT):
             );
           })}
         </section>
+        )}
 
-        {filtered.length === 0 && (
+        {activeTab === 'dashboard' && filtered.length === 0 && (
           <div className="text-center py-16" style={{ color: '#6B6862' }}>
             <p>No vouchers match. Try a different category.</p>
           </div>
         )}
 
         {/* Recently expired — the missed value pitch */}
+        {activeTab === 'dashboard' && (
         <section className="mt-16 fade-in" style={{ animationDelay: '0.5s' }}>
           <div>
             <div className="text-xs tracking-widest uppercase mb-1" style={{ color: '#92400E' }}>Recently expired · what you missed</div>
@@ -609,12 +765,185 @@ OUTPUT FORMAT (STRICT):
             ))}
           </div>
         </section>
+        )}
+
+        {/* ============= DISCOVER TAB ============= */}
+        {activeTab === 'discover' && (
+        <div className="fade-in">
+          <section className="mb-10">
+            <div className="text-xs tracking-widest uppercase mb-3" style={{ color: '#6B6862' }}>Discover · This week</div>
+            <h1 className="serif text-3xl md:text-4xl leading-tight mb-3">
+              New this week <em className="serif-italic" style={{ color: '#3B5C8A' }}>across your sources.</em>
+            </h1>
+            <p className="text-base" style={{ color: '#6B6862' }}>
+              {vouchers.filter(v => v.isNew).length} fresh vouchers detected — auto-pulled from GPay, Gmail, and Swiggy.
+            </p>
+          </section>
+
+          <section className="mb-12">
+            <div className="text-xs tracking-widest uppercase mb-4" style={{ color: '#3B5C8A' }}>Just added</div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-8">
+              {vouchers.filter(v => v.isNew).slice(0, 9).map((v, i) => {
+                const u = urgencyTone(v.daysLeft, v.daysExplicit);
+                const tiltClass = `tilt-${(i % 6) + 1}`;
+                return (
+                  <div
+                    key={v.id}
+                    onClick={() => setSelectedVoucher(v)}
+                    className={`voucher-card border p-5 group cursor-pointer relative overflow-hidden rounded-2xl ${tiltClass}`}
+                    style={{ background: 'white', borderColor: '#1A1815', borderWidth: '0.5px' }}
+                  >
+                    <div className="absolute top-0 left-0 right-0" style={{ height: '4px', background: v.tone }} />
+                    <div className="flex items-start justify-between mb-4 mt-1">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 flex items-center justify-center text-white font-semibold text-sm" style={{ background: v.tone, borderRadius: '4px' }}>
+                          {v.brand.split(' ').map(w => w[0]).slice(0, 2).join('')}
+                        </div>
+                        <div>
+                          <div className="font-medium text-sm leading-tight flex items-center gap-1.5 uppercase tracking-wider" style={{ fontSize: '11px', color: '#1A1815' }}>
+                            {v.brand}
+                            <span className="text-[9px] px-1.5 py-0.5 font-bold tracking-wider" style={{ background: '#3B5C8A', color: '#0F2547', borderRadius: '2px' }}>NEW</span>
+                          </div>
+                          <div className="text-xs mt-0.5" style={{ color: '#6B6862' }}>via {v.source}</div>
+                        </div>
+                      </div>
+                      <div className="text-xs px-2 py-1 font-medium whitespace-nowrap uppercase tracking-wider" style={{ background: u.bg, color: u.fg, fontSize: '10px', borderRadius: '2px' }}>{u.label}</div>
+                    </div>
+                    <div className="serif text-2xl mb-1 leading-snug">{v.label}</div>
+                    <div className="text-xs mb-3" style={{ color: '#6B6862', fontStyle: 'italic' }}>{v.category}</div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+
+          <section>
+            <div className="text-xs tracking-widest uppercase mb-4" style={{ color: '#B45309' }}>Expiring soonest</div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-8">
+              {[...vouchers].sort((a, b) => a.daysLeft - b.daysLeft).slice(0, 6).map((v, i) => {
+                const u = urgencyTone(v.daysLeft, v.daysExplicit);
+                const tiltClass = `tilt-${(i % 6) + 1}`;
+                return (
+                  <div
+                    key={v.id}
+                    onClick={() => setSelectedVoucher(v)}
+                    className={`voucher-card border p-5 cursor-pointer relative overflow-hidden rounded-2xl ${tiltClass}`}
+                    style={{ background: 'white', borderColor: '#1A1815', borderWidth: '0.5px' }}
+                  >
+                    <div className="absolute top-0 left-0 right-0" style={{ height: '4px', background: v.tone }} />
+                    <div className="flex items-start justify-between mb-4 mt-1">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 flex items-center justify-center text-white font-semibold text-sm" style={{ background: v.tone, borderRadius: '4px' }}>
+                          {v.brand.split(' ').map(w => w[0]).slice(0, 2).join('')}
+                        </div>
+                        <div>
+                          <div className="font-medium text-sm leading-tight uppercase tracking-wider" style={{ fontSize: '11px', color: '#1A1815' }}>{v.brand}</div>
+                          <div className="text-xs mt-0.5" style={{ color: '#6B6862' }}>via {v.source}</div>
+                        </div>
+                      </div>
+                      <div className="text-xs px-2 py-1 font-medium whitespace-nowrap uppercase tracking-wider" style={{ background: u.bg, color: u.fg, fontSize: '10px', borderRadius: '2px' }}>{u.label}</div>
+                    </div>
+                    <div className="serif text-2xl mb-1 leading-snug">{v.label}</div>
+                    <div className="text-xs" style={{ color: '#6B6862', fontStyle: 'italic' }}>{v.category}</div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        </div>
+        )}
+
+        {/* ============= SETTINGS TAB ============= */}
+        {activeTab === 'settings' && (
+        <div className="fade-in">
+          <section className="mb-10">
+            <div className="text-xs tracking-widest uppercase mb-3" style={{ color: '#6B6862' }}>Settings · Account</div>
+            <h1 className="serif text-3xl md:text-4xl leading-tight mb-3">
+              Your <em className="serif-italic" style={{ color: '#3B5C8A' }}>Klaim</em> setup.
+            </h1>
+            <p className="text-base" style={{ color: '#6B6862' }}>
+              Manage your connected sources and install the browser extension.
+            </p>
+          </section>
+
+          {/* Account row */}
+          <section className="mb-10 rounded-2xl border p-5" style={{ background: 'white', borderColor: '#E0E0E0' }}>
+            <div className="text-xs uppercase tracking-widest mb-3" style={{ color: '#6B6862' }}>Signed in as</div>
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full flex items-center justify-center text-white font-medium" style={{ background: '#3B5C8A' }}>J</div>
+              <div>
+                <div className="font-medium text-sm">Jyotika Punjabi</div>
+                <div className="text-xs" style={{ color: '#6B6862' }}>JyotikaPunjabi1402@gmail.com</div>
+              </div>
+            </div>
+          </section>
+
+          {/* Connected sources full panel */}
+          <section className="mb-10">
+            <div className="flex items-center gap-2 mb-4">
+              <Plug size={14} style={{ color: '#3B5C8A' }} />
+              <span className="text-xs uppercase tracking-widest" style={{ color: '#3B5C8A' }}>Connected sources</span>
+            </div>
+            <div className="rounded-2xl border overflow-hidden" style={{ borderColor: '#E0E0E0', background: 'white' }}>
+              {CONNECTED_SOURCES.map((s, i) => (
+                <div key={s.name} className="p-4 flex items-center justify-between" style={{ borderTop: i === 0 ? 'none' : '0.5px solid #E0E0E0' }}>
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span className={`w-2 h-2 rounded-full flex-shrink-0`} style={{ background: s.status === 'active' ? '#15803D' : '#C8BFA8' }} />
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium flex items-center gap-2">
+                        {s.name}
+                        {s.status === 'active' && <span className="text-[9px] px-1.5 py-0.5 font-bold tracking-wider rounded" style={{ background: '#ECFCCB', color: '#3F6212' }}>ACTIVE</span>}
+                        {s.status === 'coming' && <span className="text-[9px] px-1.5 py-0.5 font-bold tracking-wider rounded" style={{ background: '#EFEFEF', color: '#6B6862' }}>SOON</span>}
+                      </div>
+                      <div className="text-xs mt-0.5" style={{ color: '#6B6862' }}>{s.note}{s.count ? ` · ${s.count} vouchers` : ''}</div>
+                    </div>
+                  </div>
+                  {s.status === 'active' ? (
+                    <button className="text-xs px-3 py-1.5 rounded-md font-medium" style={{ background: '#FAFAFA', color: '#1A1815', border: '1px solid #E0E0E0' }}>Manage</button>
+                  ) : (
+                    <button disabled className="text-xs px-3 py-1.5 rounded-md font-medium" style={{ background: '#FAFAFA', color: '#6B6862', border: '1px solid #E0E0E0', opacity: 0.6 }}>Coming soon</button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </section>
+
+          {/* Chrome Extension install guide */}
+          <section className="mb-10">
+            <div className="flex items-center gap-2 mb-4">
+              <Chrome size={14} style={{ color: '#3B5C8A' }} />
+              <span className="text-xs uppercase tracking-widest" style={{ color: '#3B5C8A' }}>Klaim for Chrome</span>
+            </div>
+            <div className="rounded-2xl p-6 md:p-7" style={{ background: '#0F2547', color: '#FAFAFA' }}>
+              <h2 className="serif text-2xl mb-3 leading-snug">The voucher that knows where you're shopping.</h2>
+              <p className="text-sm mb-5" style={{ opacity: 0.9, lineHeight: 1.6 }}>
+                Klaim's Chrome extension runs quietly on <strong>20 Indian retailers</strong> — Nykaa, Myntra, Amazon.in, BigBasket, MakeMyTrip, BookMyShow, Tira, AJIO, Croma, Reliance Digital, Cleartrip, Zepto, Blinkit, TataCliq, Foxtale, Be Minimalist, Hyphen, Mamaearth, Lenskart, and MakeO. When you land on a retailer page, a small panel slides in showing the relevant voucher from your portfolio. <strong>If your Nykaa voucher has expired</strong>, it pivots you to <strong>Tira</strong> where you have an active 30% off — solving the "I forgot I had this" problem in the moment it matters.
+              </p>
+              <div className="rounded-xl p-5 mb-5" style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)' }}>
+                <div className="text-xs uppercase tracking-widest mb-3" style={{ opacity: 0.7 }}>How to install (~60 seconds)</div>
+                <ol className="text-sm space-y-2 list-decimal list-inside" style={{ lineHeight: 1.7 }}>
+                  <li>Download the extension: <a href="https://klaim-delta.vercel.app/klaim-extension.zip" className="underline font-medium" style={{ color: '#FAFAFA' }}>klaim-extension.zip</a></li>
+                  <li>Unzip the file (double-click on Mac, right-click → Extract on Windows)</li>
+                  <li>Open Chrome → paste <code className="text-xs font-mono px-1.5 py-0.5 rounded" style={{ background: 'rgba(255,255,255,0.12)' }}>chrome://extensions/</code> in the address bar</li>
+                  <li>Top-right: toggle <strong>Developer mode</strong> ON</li>
+                  <li>Click <strong>Load unpacked</strong> → select the unzipped <code className="text-xs font-mono px-1.5 py-0.5 rounded" style={{ background: 'rgba(255,255,255,0.12)' }}>klaim-extension</code> folder</li>
+                  <li>Visit <a href="https://nykaa.com" target="_blank" rel="noopener noreferrer" className="underline" style={{ color: '#FAFAFA' }}>nykaa.com</a> — the Klaim panel slides in within a second</li>
+                </ol>
+              </div>
+              <div className="text-xs" style={{ opacity: 0.7 }}>
+                One-click install via the Chrome Web Store is on the way. Safari and Firefox support too.
+              </div>
+            </div>
+          </section>
+
+        </div>
+        )}
 
         {/* Footer */}
         <footer className="mt-20 pt-8 text-xs flex flex-col md:flex-row md:items-center justify-between gap-2" style={{ borderTop: '1px solid #E0E0E0', color: '#6B6862' }}>
           <div>Klaim · Your rewards, in one place. Built in Mumbai.</div>
           <div className="flex items-center gap-1">
-            <Sparkles size={10} /> Powered by Claude · Real portfolio, real recommendations
+            <Sparkles size={10} /> Real portfolio, real recommendations
           </div>
         </footer>
       </main>
@@ -646,7 +975,7 @@ OUTPUT FORMAT (STRICT):
                   </div>
                 </label>
                 <div className="text-xs space-y-2" style={{ color: '#6B6862' }}>
-                  <div className="flex items-center gap-2"><Check size={12} style={{ color: '#15803D' }} /> Brand, value, code — auto-detected via Claude Vision</div>
+                  <div className="flex items-center gap-2"><Check size={12} style={{ color: '#15803D' }} /> Brand, value, code — auto-detected via AI Vision</div>
                   <div className="flex items-center gap-2"><Check size={12} style={{ color: '#15803D' }} /> Review every voucher before adding — you stay in control</div>
                 </div>
               </>
@@ -656,7 +985,7 @@ OUTPUT FORMAT (STRICT):
               <div className="rounded-xl border p-10 text-center" style={{ borderColor: '#E0E0E0', background: 'white' }}>
                 <Loader2 size={28} className="animate-spin mx-auto mb-4" style={{ color: '#3B5C8A' }} />
                 <div className="serif text-xl mb-2">Reading {ocrFileName || 'your screenshot'}…</div>
-                <div className="text-xs" style={{ color: '#6B6862' }}>Claude Vision is identifying every voucher in the image. Usually takes 5-10 seconds.</div>
+                <div className="text-xs" style={{ color: '#6B6862' }}>AI Vision is identifying every voucher in the image. Usually takes 10-20 seconds.</div>
               </div>
             )}
 
@@ -782,6 +1111,98 @@ OUTPUT FORMAT (STRICT):
           </div>
         </div>
       )}
+
+      {/* Voucher detail modal */}
+      {selectedVoucher && (() => {
+        const v = selectedVoucher;
+        const u = urgencyTone(v.daysLeft, v.daysExplicit);
+        const url = getRetailerUrl(v.brand);
+        return (
+          <div className="fixed inset-0 flex items-center justify-center p-4 z-50" style={{ background: 'rgba(26,24,21,0.5)' }} onClick={() => { setSelectedVoucher(null); setReminderOn(false); }}>
+            <div className="rounded-2xl max-w-md w-full overflow-hidden max-h-[90vh] overflow-y-auto" style={{ background: '#FAFAFA' }} onClick={(e) => e.stopPropagation()}>
+              {/* Top brand strip */}
+              <div className="relative px-6 pt-6 pb-5" style={{ background: v.tone, color: '#FAFAFA' }}>
+                <button onClick={() => { setSelectedVoucher(null); setReminderOn(false); }} className="absolute top-4 right-4 opacity-80 hover:opacity-100"><X size={18} /></button>
+                <div className="text-[10px] uppercase tracking-widest mb-2" style={{ opacity: 0.85 }}>via {v.source}</div>
+                <div className="serif text-2xl mb-1 leading-tight">{v.brand}</div>
+                <div className="text-xs" style={{ opacity: 0.85 }}>{v.category} · {v.specialty}</div>
+              </div>
+
+              {/* Offer body */}
+              <div className="p-6">
+                <div className="text-[10px] uppercase tracking-widest mb-2" style={{ color: '#6B6862' }}>The offer</div>
+                <div className="serif text-3xl mb-4 leading-tight" style={{ color: '#1A1815' }}>{v.label}</div>
+                {v.caveat && (
+                  <div className="text-xs flex items-center gap-1.5 mb-4 px-3 py-2 rounded-lg" style={{ color: '#92400E', background: '#FEF3C7' }}>
+                    <AlertTriangle size={12} /> <span className="italic">{v.caveat}</span>
+                  </div>
+                )}
+
+                {/* Expiry countdown */}
+                <div className="rounded-xl p-3 mb-4 flex items-center justify-between" style={{ background: u.bg }}>
+                  <div className="flex items-center gap-2">
+                    <Clock size={14} style={{ color: u.fg }} />
+                    <span className="text-xs font-medium uppercase tracking-wider" style={{ color: u.fg }}>Expires</span>
+                  </div>
+                  <span className="text-sm font-semibold" style={{ color: u.fg }}>{u.label}{!v.daysExplicit ? ' (estimated)' : ''}</span>
+                </div>
+
+                {/* Code (copyable) */}
+                {v.code && (
+                  <div className="mb-4">
+                    <div className="text-[10px] uppercase tracking-widest mb-2" style={{ color: '#6B6862' }}>Voucher code</div>
+                    <button
+                      onClick={() => copyCode(v.code)}
+                      className="w-full flex items-center justify-between px-4 py-3 rounded-xl font-mono text-sm font-semibold transition"
+                      style={{ background: '#EFEFEF', color: '#3B5C8A', border: '1px dashed #C8BFA8' }}
+                    >
+                      <span>{v.code}</span>
+                      <span className="flex items-center gap-1.5 text-xs" style={{ color: copiedCode ? '#15803D' : '#6B6862' }}>
+                        {copiedCode ? <><Check size={12} /> Copied</> : <><Copy size={12} /> Tap to copy</>}
+                      </span>
+                    </button>
+                  </div>
+                )}
+
+                {/* Best uses */}
+                <div className="mb-4">
+                  <div className="text-[10px] uppercase tracking-widest mb-2" style={{ color: '#6B6862' }}>Best uses</div>
+                  <div className="text-sm leading-relaxed" style={{ color: '#1A1815' }}>
+                    {v.specialty} — apply during checkout on {v.brand}{v.code ? `, paste code ${v.code}` : ''}.
+                  </div>
+                </div>
+
+                {/* Reminder toggle */}
+                <button
+                  onClick={() => setReminderOn(!reminderOn)}
+                  className="w-full flex items-center justify-between px-4 py-3 rounded-xl mb-5 transition"
+                  style={{ background: 'white', border: '1px solid #E0E0E0' }}
+                >
+                  <div className="flex items-center gap-2">
+                    <Bell size={14} style={{ color: reminderOn ? '#3B5C8A' : '#6B6862' }} />
+                    <span className="text-sm" style={{ color: '#1A1815' }}>Remind me 24 hours before expiry</span>
+                  </div>
+                  <span className="w-9 h-5 rounded-full relative transition" style={{ background: reminderOn ? '#3B5C8A' : '#E0E0E0' }}>
+                    <span className="absolute top-0.5 w-4 h-4 rounded-full bg-white transition" style={{ left: reminderOn ? '18px' : '2px' }} />
+                  </span>
+                </button>
+
+                {/* Primary CTA: go to retailer */}
+                <a
+                  href={url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full py-3 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 transition hover:opacity-90"
+                  style={{ background: '#0F2547', color: '#FAFAFA' }}
+                >
+                  <ShoppingBag size={14} /> Shop on {v.brand} <ExternalLink size={12} />
+                </a>
+                <div className="text-[10px] text-center mt-2" style={{ color: '#6B6862' }}>Opens in a new tab. Apply your code at checkout.</div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

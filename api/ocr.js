@@ -10,6 +10,8 @@ export const config = {
   },
 };
 
+export const maxDuration = 60;
+
 const MOCK_EXTRACTION = [
   {
     brand: 'Wow Skin Science',
