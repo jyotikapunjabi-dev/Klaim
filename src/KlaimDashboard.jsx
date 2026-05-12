@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import { Sparkles, Upload, ArrowUpRight, Search, Loader2, Zap, X, Check, AlertTriangle, Clock, Mail, Copy, Bell, ExternalLink, Chrome, ShoppingBag, TrendingUp, Plug } from 'lucide-react';
 
 // Map known brands to their retail URLs. Fallback to a Google search for the brand.
@@ -133,6 +133,27 @@ export default function KlaimDashboard() {
   const [reminderOn, setReminderOn] = useState(false);
   const [dragActive, setDragActive] = useState(false);
   const fileInputRef = useRef(null);
+  const ocrAbortRef = useRef(null);
+
+  // While the upload modal is open, prevent the browser from opening dropped files in a new tab.
+  // If the user drops anywhere on the modal, route the file to the OCR pipeline.
+  useEffect(() => {
+    if (!uploadOpen) return;
+    const handleDragOver = (e) => { e.preventDefault(); };
+    const handleDrop = (e) => {
+      e.preventDefault();
+      const file = e.dataTransfer?.files?.[0];
+      if (file && file.type.startsWith('image/') && !ocrLoading && !ocrPreview) {
+        handleScreenshotUpload(file);
+      }
+    };
+    window.addEventListener('dragover', handleDragOver);
+    window.addEventListener('drop', handleDrop);
+    return () => {
+      window.removeEventListener('dragover', handleDragOver);
+      window.removeEventListener('drop', handleDrop);
+    };
+  }, [uploadOpen, ocrLoading, ocrPreview]);
 
   const copyCode = (code) => {
     if (!code) return;
@@ -191,6 +212,19 @@ export default function KlaimDashboard() {
 
   async function handleScreenshotUpload(file) {
     if (!file) return;
+
+    // Cancel any in-flight OCR request before starting a new one
+    if (ocrAbortRef.current) {
+      try { ocrAbortRef.current.abort(); } catch (_) {}
+    }
+    const controller = new AbortController();
+    ocrAbortRef.current = controller;
+
+    // Hard client-side timeout so we never spin past 75s even if the server hangs
+    const timeoutId = setTimeout(() => {
+      try { controller.abort(); } catch (_) {}
+    }, 75000);
+
     setOcrLoading(true);
     setOcrError('');
     setOcrSuccess(null);
@@ -204,6 +238,7 @@ export default function KlaimDashboard() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ imageBase64: base64, mediaType }),
+        signal: controller.signal,
       });
 
       if (!res.ok) {
@@ -245,8 +280,14 @@ export default function KlaimDashboard() {
       setOcrPreview(previewItems);
 
     } catch (e) {
-      setOcrError(`Couldn't read this screenshot. ${e.message || 'Try a clearer image.'}`);
+      if (e.name === 'AbortError') {
+        setOcrError('Request cancelled or timed out. Try a smaller/clearer screenshot.');
+      } else {
+        setOcrError(`Couldn't read this screenshot. ${e.message || 'Try a clearer image.'}`);
+      }
     } finally {
+      clearTimeout(timeoutId);
+      if (ocrAbortRef.current === controller) ocrAbortRef.current = null;
       setOcrLoading(false);
     }
   }
@@ -265,9 +306,15 @@ export default function KlaimDashboard() {
   }
 
   function resetOcr() {
+    // Cancel in-flight request if user closes/dismisses mid-load
+    if (ocrAbortRef.current) {
+      try { ocrAbortRef.current.abort(); } catch (_) {}
+      ocrAbortRef.current = null;
+    }
     setOcrError('');
     setOcrFileName('');
     setOcrPreview(null);
+    setOcrLoading(false);
   }
 
   async function syncGmail() {
@@ -1074,7 +1121,14 @@ OUTPUT FORMAT:
               <div className="rounded-xl border p-10 text-center" style={{ borderColor: '#E0E0E0', background: 'white' }}>
                 <Loader2 size={28} className="animate-spin mx-auto mb-4" style={{ color: '#3B5C8A' }} />
                 <div className="serif text-xl mb-2">Reading {ocrFileName || 'your screenshot'}…</div>
-                <div className="text-xs" style={{ color: '#6B6862' }}>AI Vision is identifying every voucher in the image. Usually takes 10-20 seconds.</div>
+                <div className="text-xs mb-4" style={{ color: '#6B6862' }}>AI Vision is identifying every voucher in the image. Usually takes 15-25 seconds.</div>
+                <button
+                  onClick={resetOcr}
+                  className="text-xs px-3 py-1.5 rounded-md font-medium border"
+                  style={{ borderColor: '#E0E0E0', color: '#1A1815', background: 'white' }}
+                >
+                  Cancel
+                </button>
               </div>
             )}
 
