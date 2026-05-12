@@ -227,7 +227,6 @@ export default function KlaimDashboard() {
 
     setOcrLoading(true);
     setOcrError('');
-    setOcrSuccess(null);
     setOcrFileName(file.name);
 
     try {
