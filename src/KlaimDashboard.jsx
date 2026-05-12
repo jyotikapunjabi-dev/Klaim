@@ -781,7 +781,7 @@ OUTPUT FORMAT:
               className="text-sm px-3 py-2 rounded-full flex items-center gap-2 transition"
               style={{ background: '#1A1815', color: '#FAFAFA' }}
             >
-              <Upload size={14} /> Add screenshots
+              <Upload size={14} /> Add screenshots of existing vouchers
             </button>
           </div>
         </section>
@@ -1062,7 +1062,7 @@ OUTPUT FORMAT:
           <div className="rounded-2xl max-w-lg w-full p-6 max-h-[90vh] overflow-y-auto" style={{ background: '#FAFAFA' }} onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="serif text-2xl">
-                {ocrPreview ? 'Review extracted vouchers' : ocrLoading ? 'Reading screenshot' : 'Add screenshots'}
+                {ocrPreview ? 'Review extracted vouchers' : ocrLoading ? 'Reading screenshot' : 'Add screenshots of existing vouchers'}
               </h3>
               <button onClick={() => { setUploadOpen(false); resetOcr(); }} className="opacity-60 hover:opacity-100"><X size={18} /></button>
             </div>
