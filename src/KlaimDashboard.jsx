@@ -155,6 +155,38 @@ export default function KlaimDashboard() {
     return { totalValue, expiringSoon, total: vouchers.length, missedValue };
   }, [vouchers]);
 
+  async function compressImage(file, maxDim = 1600, quality = 0.85) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      const objectUrl = URL.createObjectURL(file);
+      img.onload = () => {
+        URL.revokeObjectURL(objectUrl);
+        const canvas = document.createElement('canvas');
+        let { width, height } = img;
+        if (width > maxDim || height > maxDim) {
+          if (width >= height) {
+            height = Math.round((height * maxDim) / width);
+            width = maxDim;
+          } else {
+            width = Math.round((width * maxDim) / height);
+            height = maxDim;
+          }
+        }
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+        const dataUrl = canvas.toDataURL('image/jpeg', quality);
+        resolve({ base64: dataUrl.split(',')[1], mediaType: 'image/jpeg' });
+      };
+      img.onerror = (e) => {
+        URL.revokeObjectURL(objectUrl);
+        reject(new Error('Could not load image. Try a different file.'));
+      };
+      img.src = objectUrl;
+    });
+  }
+
   async function handleScreenshotUpload(file) {
     if (!file) return;
     setOcrLoading(true);
@@ -163,14 +195,8 @@ export default function KlaimDashboard() {
     setOcrFileName(file.name);
 
     try {
-      const base64 = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result.split(',')[1]);
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-      });
-
-      const mediaType = file.type || 'image/png';
+      // Resize/compress client-side to stay under Vercel's 4.5MB body limit and speed up upload
+      const { base64, mediaType } = await compressImage(file);
 
       const res = await fetch('/api/ocr', {
         method: 'POST',
@@ -178,7 +204,10 @@ export default function KlaimDashboard() {
         body: JSON.stringify({ imageBase64: base64, mediaType }),
       });
 
-      if (!res.ok) throw new Error(`API ${res.status}`);
+      if (!res.ok) {
+        const errBody = await res.text().catch(() => '');
+        throw new Error(`API ${res.status}${errBody ? `: ${errBody.slice(0, 200)}` : ''}`);
+      }
       const data = await res.json();
       const text = (data.extractedText || '').trim();
       const jsonText = text.replace(/^```json\s*/, '').replace(/\s*```$/, '').replace(/^```\s*/, '');
@@ -345,30 +374,51 @@ export default function KlaimDashboard() {
     setAdvisorResponse('');
     try {
       const portfolio = vouchers.map(v =>
-        `- ${v.brand} (${v.specialty}): ${v.label}; ${v.daysLeft}d left${v.daysExplicit ? '' : ' (estimated)'}; via ${v.source}${v.code ? `; code ${v.code}` : ''}${v.caveat ? `; ${v.caveat}` : ''}`
+        `- ${v.brand} [URL: ${getRetailerUrl(v.brand)}] (specialty: ${v.specialty}; category: ${v.category}): ${v.label}; ${v.daysLeft}d left${v.daysExplicit ? '' : ' (estimated)'}; via ${v.source}${v.code ? `; code ${v.code}` : ''}${v.caveat ? `; ${v.caveat}` : ''}`
       ).join('\n');
 
       const systemPrompt = `You are a sharp shopping advisor for an Indian consumer using Klaim, an app that aggregates voucher portfolios from GPay, Swiggy, and similar.
 
-Their active rewards portfolio (each line includes the retailer's specialty, days until expiry, source, and any code):
+Their active rewards portfolio. Each line includes the retailer's URL, specialty, category, offer, expiry, source, and any code:
 
 ${portfolio}
 
+CATEGORY MATCHING — STRICT:
+- Jewellery (silver/gold/earrings/rings/necklaces) ≠ Beauty/Makeup. GIVA is jewellery; Tira and Nykaa Beauty are makeup/skincare. NEVER substitute across these.
+- Beauty/Skincare (D2C — serums, sunscreens, moisturizers) ≠ Fashion clothing. Hyphen and Foxtale are skincare, not apparel.
+- Fashion clothing ≠ Sportswear. Meesho/Nykaa Fashion are general fashion; Puma is sportswear.
+- Travel (flights, hotels, villas) is its own category — Cleartrip, IndiGo, StayVista, EaseMyTrip belong here.
+- Food & Groceries (Zepto, BigBasket, McDelivery, Domino's) ≠ Lifestyle ≠ Beauty.
+- If the user's query category has NO match in the portfolio, say so honestly. Do not stretch a beauty brand to cover jewellery, or a fashion brand to cover electronics.
+
 REASONING APPROACH:
-1. Identify the product CATEGORY from the user's query (e.g. "kurta" → ethnic fashion; "face serum" → beauty/D2C skincare; "weekend in Goa" → travel — flights, stays, activities).
-2. Match category to retailer SPECIALTY in the portfolio (Meesho = mass fashion + home; Tira = premium beauty; Cleartrip/IndiGo/StayVista = travel; Hyphen/Derma Co = D2C skincare; etc.).
-3. Among matches, prioritize: (a) closest expiry, (b) highest concrete ₹ savings, (c) no caveats. Mention 2-3 relevant vouchers with codes and savings math when possible.
-4. Be brand-flexible — treat the user as open to alternatives unless they specify a brand. If they ask for Nykaa, suggest Tira if it has the better voucher.
-5. If NOTHING in the portfolio fits the category, say so honestly and suggest what type of voucher would help.
+1. Identify the product CATEGORY from the user's query.
+2. Find portfolio retailers whose specialty/category genuinely overlaps. Be strict — over-suggesting irrelevant brands erodes trust.
+3. Among genuine matches, prioritize: (a) closest expiry, (b) highest concrete ₹ savings, (c) no caveats.
+4. Mention 2-3 RELEVANT vouchers max. One strong primary, plus alternatives ONLY if they're in the same category.
+5. If only one brand fits the category, that's fine — recommend it confidently rather than padding with off-category suggestions.
+6. If NOTHING fits, say so honestly and name what voucher type would help.
+
+DEEP LINKS — construct category/search URLs when possible:
+- The portfolio gives you each retailer's HOMEPAGE URL. For a specific product query, append a search path to land the user directly on relevant items.
+- D2C / Shopify brands (GIVA, Hyphen, Foxtale, Minimalist, Re'equil, RENEE, Clay Co, Derma Co, mCaffeine, Toothsi, StayVista): {homepage}search?q={query} — e.g. https://www.giva.co/search?q=silver+earrings, https://www.foxtale.in/search?q=vitamin+c+serum
+- Marketplaces (Meesho, Nykaa Fashion, BigBasket, Lenskart, Tira): {homepage}search?q={query} — e.g. https://www.meesho.com/search?q=kurta, https://www.tirabeauty.com/search?q=lipstick
+- Travel (Cleartrip, IndiGo, EaseMyTrip, AirIndia, Qatar Airways, Club ITC): use the homepage — deep links to specific flights/hotels are too complex to construct.
+- Food / quick commerce (Zepto, Blinkit, McDelivery, Domino's): homepage.
+- When in doubt, use {homepage}search?q={query} — it works on most modern Indian e-commerce sites. Falls back gracefully if the URL pattern is slightly different.
+- ALWAYS URL-encode spaces as "+" or "%20" in the query string.
 
 OUTPUT FORMAT:
 - 3-5 sentences. Target 100-150 words. Concrete, specific, never generic.
-- Use **bold** for: brand names, voucher codes (e.g. **SUGAR250**), savings amounts (e.g. **₹500 off**), urgency phrases (e.g. **expires in 2 days**).
+- Use **bold** for: brand names in prose, voucher codes (e.g. **SUGAR250**), savings amounts (e.g. **₹500 off**), urgency phrases (e.g. **expires in 2 days**).
 - Use *italic* for: caveats only (e.g. *new users only*, *prepaid only*).
+- ALWAYS include a markdown link for the recommended retailer, using a DEEP LINK to the product category/search page when possible. Format: [Brand name](URL). Example for "silver earrings": "Head to [GIVA's silver earrings](https://www.giva.co/search?q=silver+earrings) for **20% off** fine silver jewellery."
+- The link text should describe what the user lands on (e.g. "GIVA's silver earrings", "Foxtale Vitamin C serums"), not just the brand name.
 - NO bullet points, NO headers, NO line breaks. Flowing prose.
 - Write like a savvy friend texting fast — confident, direct, useful. Not a customer service bot.
-- Always mention specific voucher codes and concrete savings when relevant. End with a soft urgency cue if a voucher expires soon.
-- DO NOT invent URLs, product pages, or facts you weren't given. Only reference vouchers actually in the portfolio above.`;
+- End with a soft urgency cue if a voucher expires soon.
+- DO NOT invent URLs for brands not in the portfolio. Only construct URLs by appending search paths to the homepage URLs given above.
+- DO NOT suggest brands outside the portfolio. If the user asks about something not covered (e.g. electronics, books), be honest about the gap.`;
 
       const res = await fetch('/api/advisor', {
         method: 'POST',
@@ -519,7 +569,8 @@ OUTPUT FORMAT:
                 <div className="mt-5 p-4 rounded-lg fade-in" style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)' }}>
                   <div className="text-sm leading-relaxed whitespace-pre-wrap">
                     {(() => {
-                      const pattern = /(\*\*[^*]+?\*\*)|(\*[^*\n]+?\*)|(https?:\/\/[^\s)]+)/g;
+                      // Order matters: match markdown links FIRST (otherwise bold/italic inside link text gets eaten).
+                      const pattern = /(\[([^\]]+)\]\((https?:\/\/[^\s)]+)\))|(\*\*[^*]+?\*\*)|(\*[^*\n]+?\*)|(https?:\/\/[^\s)]+)/g;
                       const parts = [];
                       let lastIndex = 0;
                       let match;
@@ -529,11 +580,20 @@ OUTPUT FORMAT:
                           parts.push(<span key={key++}>{advisorResponse.slice(lastIndex, match.index)}</span>);
                         }
                         if (match[1]) {
-                          parts.push(<strong key={key++} className="font-semibold" style={{ color: '#FAFAFA' }}>{match[1].slice(2, -2)}</strong>);
-                        } else if (match[2]) {
-                          parts.push(<em key={key++} style={{ opacity: 0.85 }}>{match[2].slice(1, -1)}</em>);
-                        } else if (match[3]) {
-                          const url = match[3];
+                          // Markdown link [text](url)
+                          const linkText = match[2];
+                          const linkUrl = match[3];
+                          parts.push(
+                            <a key={key++} href={linkUrl} target="_blank" rel="noopener noreferrer" className="underline font-semibold hover:opacity-80" style={{ color: '#FAFAFA' }}>
+                              {linkText}
+                            </a>
+                          );
+                        } else if (match[4]) {
+                          parts.push(<strong key={key++} className="font-semibold" style={{ color: '#FAFAFA' }}>{match[4].slice(2, -2)}</strong>);
+                        } else if (match[5]) {
+                          parts.push(<em key={key++} style={{ opacity: 0.85 }}>{match[5].slice(1, -1)}</em>);
+                        } else if (match[6]) {
+                          const url = match[6];
                           parts.push(
                             <a key={key++} href={url} target="_blank" rel="noopener noreferrer" className="underline hover:opacity-80 break-all" style={{ color: '#FAFAFA' }}>
                               {url.length > 55 ? url.substring(0, 52) + '...' : url}
